@@ -104,7 +104,7 @@ var mPortalController;
 var mScene1,
   mScene2;
 
-window.onload = function () {
+document.addEventListener('DOMContentLoaded', () => {
   initTHREE();
   initScenes();
   initPortals();
@@ -113,7 +113,7 @@ window.onload = function () {
   resize();
   
   requestAnimationFrame(loop);
-};
+});
 
 function initTHREE() {
   mCamera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 10000);

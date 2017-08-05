@@ -133,6 +133,7 @@ THREE.PortalController.prototype = {
   })(),
   render:(function() {
     var cameraMatrixWorld = new THREE.Matrix4(),
+      cameraMatrixWorldInverse = new THREE.Matrix4(),
       cameraProjectionMatrix = new THREE.Matrix4();
     
     return function() {
@@ -144,6 +145,7 @@ THREE.PortalController.prototype = {
       
       // save camera matrices because they will be modified when rending a view through a portal
       cameraMatrixWorld.copy(this.camera.matrixWorld);
+      cameraMatrixWorldInverse.copy(this.camera.matrixWorldInverse);
       cameraProjectionMatrix.copy(this.camera.projectionMatrix);
       
       // full clear (color, depth and stencil)
@@ -205,6 +207,7 @@ THREE.PortalController.prototype = {
         
         // restore original camera matrices for the next portal
         this.camera.matrixWorld.copy(cameraMatrixWorld);
+        this.camera.matrixWorldInverse.copy(cameraMatrixWorldInverse);
         this.camera.projectionMatrix.copy(cameraProjectionMatrix);
       }
       

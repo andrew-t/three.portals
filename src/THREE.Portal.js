@@ -1,6 +1,9 @@
 THREE.Portal = function(width, height) {
   var geometry = new THREE.PortalGeometry(width, height);
-  var material = new THREE.PortalMaterial();
+  var material = [
+    new THREE.MeshBasicMaterial(),
+    new THREE.MeshBasicMaterial({visible:false})
+  ];
 
   THREE.Mesh.call(this, geometry, material);
 };
@@ -12,7 +15,7 @@ THREE.Portal.prototype.setVolumeFromCamera = function(camera) {
 };
 THREE.Portal.prototype.toggleVolumeFaces = function(state) {
   this.volumeFacesVisible = state;
-  this.material.materials[1].visible = state;
+  this.material[1].visible = state;
 };
 THREE.Portal.prototype.setScene = function(scene) {
   this.scene = scene;
