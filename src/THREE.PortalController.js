@@ -65,7 +65,7 @@ THREE.PortalController.prototype = {
     for (i = 0; i < this._currentScenePortals.length; i++) {
       portal = this._currentScenePortals[i];
       
-      if (this.checkPortalIntersection(portal).length > 0) {
+      if (this.checkCameraPortalIntersection(portal)) {
         intersectedPortal = portal;
       }
     }
@@ -77,43 +77,29 @@ THREE.PortalController.prototype = {
     
     this.cameraControls.updatePosition();
   },
-  checkPortalIntersection:(function() {
-    var controlsVelocity = new THREE.Vector3(),
-      controlsDirection = new THREE.Vector3(),
-      controlsPosition = new THREE.Vector3();
+  checkCameraPortalIntersection:(function() {
+    var controlsPosition = new THREE.Vector3();
     
-    var rayDirection = new THREE.Vector3(),
-      rayLength = 0,
-      up = new THREE.Vector3(0, 1, 0);
+    var motion = new THREE.Vector3();
     
     return function(portal) {
-      this.cameraControls.getVelocity(controlsVelocity);
-      this.cameraControls.getDirection(controlsDirection);
       this.cameraControls.getPosition(controlsPosition);
       
       // todo fix volume face toggle
       var portalPosition = portal.position.clone(),
         distance = portalPosition.sub(controlsPosition).length();
+      portal.toggleVolumeFaces(distance < 10);
       
-      if (distance < 10) {
-        portal.toggleVolumeFaces(true);
-      }
-      else {
-        portal.toggleVolumeFaces(false);
-      }
-      
-      rayDirection.x = controlsVelocity.x;
-      rayDirection.z = controlsVelocity.z;
-      rayDirection.applyAxisAngle(up, this.cameraControlsObject.rotation.y).normalize();
-      
-      rayLength = controlsVelocity.length();
-      
-      this._raycaster.set(controlsPosition, rayDirection);
-      this._raycaster.far = rayLength;
-      
-      return this._raycaster.intersectObject(portal, false);
+      this.cameraControls.getMotion(motion);
+
+      return this.checkPortalIntersection(controlsPosition, motion, portal);
     };
   })(),
+  checkPortalIntersection:function(start, motion, portal) {
+    this._raycaster.set(start, motion);
+    this._raycaster.far = motion.length();
+    return this._raycaster.intersectObject(portal, false).length > 0;
+  },
   teleport:(function() {
     var m = new THREE.Matrix4(),
       p = new THREE.Vector4(),
@@ -122,6 +108,7 @@ THREE.PortalController.prototype = {
       e = new THREE.Euler(0, 0, -1, "YXZ");
     
     return function(portal) {
+      console.log('Teleporting', portal);
       e.set(0, 0, -1);
       m.copy(this.computePortalViewMatrix(portal));
       m.decompose(p, q, s);
@@ -233,21 +220,27 @@ THREE.PortalController.prototype = {
       this.renderer.render(this._currentScene, this.camera);
     };
   })(),
-  computePortalViewMatrix:(function() {
+  computePortalViewMatrix:function(portal) {
+    return this.applyPortalMatrix(
+      this.camera.matrixWorldInverse,
+      portal);
+  },
+  applyPortalMatrix:(function() {
     var rotationYMatrix = new THREE.Matrix4().makeRotationY(Math.PI),
       dstInverse = new THREE.Matrix4(),
       srcToCam = new THREE.Matrix4(),
       srcToDst = new THREE.Matrix4(),
       result = new THREE.Matrix4();
     
-    return function(portal) {
-      var cam = this.camera,
-        src = portal,
+    return function(matrix, portal) {
+      var src = portal,
         dst = portal.destinationPortal;
       
-      srcToCam.multiplyMatrices(cam.matrixWorldInverse, src.matrix);
+      srcToCam.multiplyMatrices(matrix, src.matrix);
       dstInverse.getInverse(dst.matrix);
-      srcToDst.identity().multiply(srcToCam).multiply(rotationYMatrix).multiply(dstInverse);
+      srcToDst.copy(srcToCam)
+        .multiply(rotationYMatrix)
+        .multiply(dstInverse);
       
       result.getInverse(srcToDst);
       

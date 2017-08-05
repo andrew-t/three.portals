@@ -173,17 +173,26 @@ THREE.PortalControls = function ( camera ) {
 	};
     
     this.updatePosition = function() {
-			yawObject.translateX( velocity.x );
-			yawObject.translateY( velocity.y ); 
-			yawObject.translateZ( velocity.z );
+		yawObject.translateX( velocity.x );
+		yawObject.translateY( velocity.y ); 
+		yawObject.translateZ( velocity.z );
 
-			if ( yawObject.position.y < 10 ) {
-	
-				velocity.y = 0;
-				yawObject.position.y = 10;
-	
-				canJump = true;
-	
-			}
+		if ( yawObject.position.y < 10 ) {
+
+			velocity.y = 0;
+			yawObject.position.y = 10;
+
+			canJump = true;
+
+		}
+    },
+
+    this.getMotion = function(motion) {
+      motion.y = 0;
+      motion.x = velocity.x;
+      motion.z = velocity.z;
+      motion.applyAxisAngle(
+      	new THREE.Vector3(0, 1, 0),
+      	yawObject.rotation.y);
     }
 };
