@@ -142,34 +142,34 @@ function initScene1() {
   
   // a box in the center
   geometry = new THREE.BoxGeometry(400, 25, 20);
-  material = new THREE.MeshBasicMaterial({color: 0xFFFFFF});
+  material = new THREE.MeshLambertMaterial({color: 0xFFFFFF});
   mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(0, 12.5, -10);
   mScene1.add(mesh);
   
   // something fancy to look at
   geometry = new THREE.TorusKnotGeometry(10, 1, 64, 8, 3, 5);
-  material = new THREE.MeshBasicMaterial({color: 0x00FF00});
+  material = new THREE.MeshLambertMaterial({color: 0x00FF00});
   mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(0, 20, 75);
   mScene1.add(mesh);
   
   geometry = new THREE.TorusKnotGeometry(10, 1, 64, 8, 7, 11);
-  material = new THREE.MeshBasicMaterial({color: 0x00FF00});
+  material = new THREE.MeshLambertMaterial({color: 0x00FF00});
   mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(0, 20, -75);
   mScene1.add(mesh);
   
   // the floor
   geometry = new THREE.PlaneBufferGeometry(400, 400);
-  material = new THREE.MeshBasicMaterial({color: 0x0000ff});
+  material = new THREE.MeshLambertMaterial({color: 0x0000ff});
   mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = Math.PI * 1.5;
   mScene1.add(mesh);
   
   // lights
-  light = new THREE.DirectionalLight(0x000000, 1);
-  light.position.set(1, 1, -1).normalize();
+  light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(2, 1, 1).normalize();
   mScene1.add(light);
   
   light = new THREE.AmbientLight(0x101010);
@@ -190,28 +190,28 @@ function initScene2() {
   
   // a box in the center
   geometry = new THREE.BoxGeometry(40, 25, 20);
-  material = new THREE.MeshBasicMaterial({color: 0xFFFFFF});
+  material = new THREE.MeshLambertMaterial({color: 0xFFFFFF});
   mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(0, 12.5, 10);
   mScene2.add(mesh);
   
   // something fancy to look at
   geometry = new THREE.TorusKnotGeometry(10, 4, 64, 8, 2, 3);
-  material = new THREE.MeshBasicMaterial({color: 0xFF0000});
+  material = new THREE.MeshLambertMaterial({color: 0xFF0000});
   mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(0, 20, -75);
   mScene2.add(mesh);
   
   // the floor
   geometry = new THREE.PlaneBufferGeometry(400, 400);
-  material = new THREE.MeshBasicMaterial({color: 0xff00ff});
+  material = new THREE.MeshLambertMaterial({color: 0xff00ff});
   mesh = new THREE.Mesh(geometry, material);
   mesh.rotation.x = Math.PI * 1.5;
   mScene2.add(mesh);
   
   // lights
-  light = new THREE.DirectionalLight(0x000000, 1);
-  light.position.set(1, 1, -1).normalize();
+  light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(-1, 1, 2).normalize();
   mScene2.add(light);
   
   light = new THREE.AmbientLight(0x101010);
