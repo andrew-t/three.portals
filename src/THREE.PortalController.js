@@ -2,6 +2,7 @@ THREE.PortalController = function (settings) {
   this.camera = settings.camera;
   this.renderer = settings.renderer;
   this.renderer.autoClear = false;
+  this.portalRenderDepth = 1;
   
   this.cameraControls = new THREE.PortalControls(this.camera);
   this.cameraControlsObject = this.cameraControls.getObject();
@@ -118,10 +119,124 @@ THREE.PortalController.prototype = {
       this.cameraControls.setDirection(e);
     };
   })(),
-  render:(function() {
+  pushCamera: function() {
+    if (!this._cameraStack)
+      this._cameraStack = [];
     var cameraMatrixWorld = new THREE.Matrix4(),
       cameraMatrixWorldInverse = new THREE.Matrix4(),
       cameraProjectionMatrix = new THREE.Matrix4();
+    cameraMatrixWorld.copy(this.camera.matrixWorld);
+    cameraMatrixWorldInverse.copy(this.camera.matrixWorldInverse);
+    cameraProjectionMatrix.copy(this.camera.projectionMatrix);
+    this._cameraStack.push({
+      cameraMatrixWorld,
+      cameraMatrixWorldInverse,
+      cameraProjectionMatrix
+    });
+  },
+  popCamera: function() {
+    this.setCamera(this._cameraStack.pop());
+  },
+  peekCamera: function() {
+    this.setCamera(this._cameraStack[this._cameraStack.length - 1]);
+  },
+  setCamera: function(n) {
+    this.camera.matrixWorld.copy(n.cameraMatrixWorld);
+    this.camera.matrixWorldInverse.copy(n.cameraMatrixWorldInverse);
+    this.camera.projectionMatrix.copy(n.cameraProjectionMatrix);
+  },
+  render:(function() {
+    const cameraStack = [];
+
+    function renderScene(gl, scene, portalRenderDepth, stencilValue) {
+      if (portalRenderDepth > 0) {
+        // save camera matrices because they will be modified when rending a view through a portal
+        this.pushCamera();
+
+        let portal,
+          i,
+          scenePortals = this._sceneNameToPortalsMap[scene.name];
+          l = scenePortals.length;
+        
+        // render the view through a portal inside the portal shape
+        // the portals will be rendered one a time
+        // directly manipulating the children array is faster than using add/remove
+        this._stencilScene.children = this._singlePortal;
+        
+        // enable stencil test
+        gl.enable(gl.STENCIL_TEST);
+        // disable stencil mask
+        gl.stencilMask(0xFF);
+        
+        for (i = 0; i < l; i++) {
+          stencilValue++;
+          portal = scenePortals[i];
+          
+          // set the portal as the only child of the stencil scene
+          this._singlePortal[0] = portal;
+          
+          // disable color + depth
+          // only the stencil buffer will be drawn into
+          gl.colorMask(false, false, false, false);
+          gl.depthMask(false);
+          
+          // TODO - some clever magicks need to happen here
+          // the stencil test will always fail (this is cheaper to compute)
+          gl.stencilFunc(gl.NEVER, stencilValue, 0xFF);
+          // fragments where the portal is drawn will have a stencil value of 1
+          // other fragments will retain a stencil value of 0
+          gl.stencilOp(gl.REPLACE, gl.KEEP, gl.REPLACE);
+          
+          // render the portal shape using the settings above
+          this.renderer.render(this._stencilScene, this.camera);
+          
+          // enable color + depth
+          gl.colorMask(true, true, true, true);
+          gl.depthMask(true);
+          
+          // TODO - some clever magicks need to happen here
+          // fragments with a stencil value of 1 will be rendered
+          gl.stencilFunc(gl.EQUAL, stencilValue, 0xff);
+          // stencil buffer is not changed
+          gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+          
+          // compute the view through the portal
+          this.camera.matrixWorld.copy(this.computePortalViewMatrix(portal));
+          this.camera.matrixWorldInverse.getInverse(this.camera.matrixWorld);
+          this.camera.projectionMatrix.copy(this.computePortalProjectionMatrix(portal.destinationPortal));
+          
+          // render the view through  the portal
+          renderScene.call(this, gl, portal.destinationPortal.scene, portalRenderDepth - 1, stencilValue);
+          // this.renderer.render(portal.destinationPortal.scene, this.camera);
+          
+          // restore original camera matrices for the next portal
+          this.peekCamera();
+        }
+        // Reset the stack
+        this.popCamera();
+        
+        // after all portals have been drawn, we can disable the stencil test
+        gl.disable(gl.STENCIL_TEST);
+        
+        // clear the depth buffer to remove the portal views' depth from the current scene
+        this.renderer.clear(false, true, false);
+        
+        // all the current scene portals will be drawn this time
+        this._stencilScene.children = scenePortals;
+        
+        // disable color
+        gl.colorMask(false, false, false, false);
+        // draw the portal shapes into the depth buffer
+        // this will make the portals appear as flat shapes
+        this.renderer.render(this._stencilScene, this.camera);
+        
+        // enable color
+        gl.colorMask(true, true, true, true);
+      }
+      
+      // finally, render the current scene
+      this.renderer.render(scene, this.camera);
+    }
     
     return function() {
       var gl = this.renderer.context;
@@ -130,94 +245,10 @@ THREE.PortalController.prototype = {
       this.cameraControlsObject.updateMatrix();
       this.cameraControlsObject.updateMatrixWorld(true);
       
-      // save camera matrices because they will be modified when rending a view through a portal
-      cameraMatrixWorld.copy(this.camera.matrixWorld);
-      cameraMatrixWorldInverse.copy(this.camera.matrixWorldInverse);
-      cameraProjectionMatrix.copy(this.camera.projectionMatrix);
-      
       // full clear (color, depth and stencil)
       this.renderer.clear(true, true, true);
-      
-      var portal,
-        i,
-        l = this._currentScenePortals.length;
-      
-      // render the view through a portal inside the portal shape
-      // the portals will be rendered one a time
-      // directly manipulating the children array is faster than using add/remove
-      this._stencilScene.children = this._singlePortal;
-      
-      // enable stencil test
-      gl.enable(gl.STENCIL_TEST);
-      // disable stencil mask
-      gl.stencilMask(0xFF);
-      
-      for (i = 0; i < l; i++) {
-        portal = this._currentScenePortals[i];
-        
-        // set the portal as the only child of the stencil scene
-        this._singlePortal[0] = portal;
-        
-        // disable color + depth
-        // only the stencil buffer will be drawn into
-        gl.colorMask(false, false, false, false);
-        gl.depthMask(false);
-        
-        // the stencil test will always fail (this is cheaper to compute)
-        gl.stencilFunc(gl.NEVER, 1, 0xFF);
-        // fragments where the portal is drawn will have a stencil value of 1
-        // other fragments will retain a stencil value of 0
-        gl.stencilOp(gl.REPLACE, gl.KEEP, gl.KEEP);
-        
-        // render the portal shape using the settings above
-        this.renderer.render(this._stencilScene, this.camera);
-        
-        // enable color + depth
-        gl.colorMask(true, true, true, true);
-        gl.depthMask(true);
-        
-        // fragments with a stencil value of 1 will be rendered
-        gl.stencilFunc(gl.EQUAL, 1, 0xff);
-        // stencil buffer is not changed
-        gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-        
-        // compute the view through the portal
-        this.camera.matrixWorld.copy(this.computePortalViewMatrix(portal));
-        this.camera.matrixWorldInverse.getInverse(this.camera.matrixWorld);
-        this.camera.projectionMatrix.copy(this.computePortalProjectionMatrix(portal.destinationPortal));
-        
-        // render the view through  the portal
-        this.renderer.render(portal.destinationPortal.scene, this.camera);
-        
-        // clear the stencil buffer for the next portal
-        this.renderer.clear(false, false, true);
-        
-        // restore original camera matrices for the next portal
-        this.camera.matrixWorld.copy(cameraMatrixWorld);
-        this.camera.matrixWorldInverse.copy(cameraMatrixWorldInverse);
-        this.camera.projectionMatrix.copy(cameraProjectionMatrix);
-      }
-      
-      // after all portals have been drawn, we can disable the stencil test
-      gl.disable(gl.STENCIL_TEST);
-      
-      // clear the depth buffer to remove the portal views' depth from the current scene
-      this.renderer.clear(false, true, false);
-      
-      // all the current scene portals will be drawn this time
-      this._stencilScene.children = this._currentScenePortals;
-      
-      // disable color
-      gl.colorMask(false, false, false, false);
-      // draw the portal shapes into the depth buffer
-      // this will make the portals appear as flat shapes
-      this.renderer.render(this._stencilScene, this.camera);
-      
-      // enable color
-      gl.colorMask(true, true, true, true);
-      
-      // finally, render the current scene
-      this.renderer.render(this._currentScene, this.camera);
+
+      renderScene.call(this, gl, this._currentScene, this.portalRenderDepth, 0);
     };
   })(),
   computePortalViewMatrix:function(portal) {
