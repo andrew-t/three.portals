@@ -145,13 +145,57 @@ THREE.PortalController.prototype = {
     this.camera.matrixWorldInverse.copy(n.cameraMatrixWorldInverse);
     this.camera.projectionMatrix.copy(n.cameraProjectionMatrix);
   },
+  lookThrough: function(portal) {
+    this.camera.matrixWorld.copy(this.computePortalViewMatrix(portal));
+    this.camera.matrixWorldInverse.getInverse(this.camera.matrixWorld);
+    this.camera.projectionMatrix.copy(
+      this.computePortalProjectionMatrix(portal.destinationPortal));
+  },
   render:(function() {
     const cameraStack = [];
+
+    // ok look this isn't going to work but i'm in the middle of a thing
+    // the plan is:
+
+    // clear everything
+    // set the depth function to GREATER
+    // for each portal, draw it to the stencil layer then draw its children to the stencil layer (if they match its own stencil) and so forth
+    // then clear the depth buffer and set the function back to LESS
+    // now go through and draw all the real scenery
+    // that should work as long as no scene has any front faces behind a portal
+    // which we should be able to avoid with halfway canny level design
+
+    function renderPortals(gl, scene, portalRenderDepth, stencilValue, portalsSoFar) {
+      // FIRST we render the child portals.
+      let portal,
+        i,
+        scenePortals = this._sceneNameToPortalsMap[scene.name];
+        l = scenePortals.length;
+      if (portalRenderDepth > 0) {
+        for (i = 0; i < l; ++i) {
+          const newPortalValue = portalsSoFar | stencilValue;
+          portal = scenePortals[i];
+          // Draw the scene on the other side
+          this.lookThrough(portal);
+          renderPortals.call(this, gl,
+            portal.destinationPortal.scene,
+            portalRenderDepth - 1,
+            stencilValue << 1,
+            newPortalValue);
+          // restore original camera matrices for the next portal
+          this.peekCamera();
+          stencilValue <<= 1;
+        }
+        this.popCamera();
+      }
+    }
 
     function renderScene(gl, scene, portalRenderDepth, stencilValue, portalsSoFar) {
       if (portalRenderDepth > 0) {
         // save camera matrices because they will be modified when rending a view through a portal
         this.pushCamera();
+        gl.colorMask(true, true, true, true);
+        gl.depthMask(true);
 
         let portal,
           i,
@@ -163,30 +207,33 @@ THREE.PortalController.prototype = {
         // directly manipulating the children array is faster than using add/remove
         this._stencilScene.children = this._singlePortal;
         
-        // enable stencil test
-        gl.enable(gl.STENCIL_TEST);
-        // disable stencil mask
-        gl.stencilMask(0xFF);
-        
+        // First we draw the portals onto the stencil layer
+        const originalStencilValue = stencilValue;
         for (i = 0; i < l; i++) {
           const newPortalValue = portalsSoFar | stencilValue;
           portal = scenePortals[i];
           
           // Draw the Portal to the Stencil mask...
-          // (TODO: Probably need better magicks here)
           this._singlePortal[0] = portal;
           gl.colorMask(false, false, false, false);
-          gl.depthMask(false);
-          gl.stencilFunc(gl.EQUAL, newPortalValue, portalsSoFar);
-          gl.stencilOp(gl.REPLACE, gl.KEEP, gl.REPLACE);
-          this.renderer.render(this._stencilScene, this.camera);
-          gl.colorMask(true, true, true, true);
           gl.depthMask(true);
+          gl.stencilFunc(gl.EQUAL, newPortalValue, portalsSoFar);
+          gl.stencilOp(gl.KEEP, gl.REPLACE, gl.KEEP);
+          this.renderer.render(this._stencilScene, this.camera);
+          stencilValue <<= 1;
+        }
+
+        // Then we draw their contents as needed
+        stencilValue = originalStencilValue;
+        for (i = 0; i < l; i++) {
+          const newPortalValue = portalsSoFar | stencilValue;
+          portal = scenePortals[i];
           
           // Draw the scene on the other side
           this.camera.matrixWorld.copy(this.computePortalViewMatrix(portal));
           this.camera.matrixWorldInverse.getInverse(this.camera.matrixWorld);
-          this.camera.projectionMatrix.copy(this.computePortalProjectionMatrix(portal.destinationPortal));
+          this.camera.projectionMatrix.copy(
+            this.computePortalProjectionMatrix(portal.destinationPortal));
           renderScene.call(this, gl,
             portal.destinationPortal.scene,
             portalRenderDepth - 1,
@@ -234,6 +281,10 @@ THREE.PortalController.prototype = {
       
       // full clear (color, depth and stencil)
       this.renderer.clear(true, true, true);
+        
+      // enable stencil test
+      gl.enable(gl.STENCIL_TEST);
+      gl.stencilMask(0xFFFFFF);
 
       renderScene.call(this, gl,
         this._currentScene,
