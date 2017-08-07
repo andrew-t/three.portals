@@ -1,8 +1,15 @@
 THREE.Portal = function(width, height) {
   var geometry = new THREE.PortalGeometry(width, height);
   var material = [
-    new THREE.MeshBasicMaterial(),
-    new THREE.MeshBasicMaterial({visible:false})
+    new THREE.MeshBasicMaterial({
+      side: THREE.FrontFace,
+      color: 0xffffff
+    }),
+    new THREE.MeshBasicMaterial({
+      visible: false,
+      side: THREE.FrontFace,
+      color: 0xffffff
+    })
   ];
 
   THREE.Mesh.call(this, geometry, material);

@@ -152,142 +152,119 @@ THREE.PortalController.prototype = {
       this.computePortalProjectionMatrix(portal.destinationPortal));
   },
   render:(function() {
-    const cameraStack = [];
-
-    // ok look this isn't going to work but i'm in the middle of a thing
-    // the plan is:
-
-    // clear everything
-    // set the depth function to GREATER
-    // for each portal, draw it to the stencil layer then draw its children to the stencil layer (if they match its own stencil) and so forth
-    // then clear the depth buffer and set the function back to LESS
-    // now go through and draw all the real scenery
-    // that should work as long as no scene has any front faces behind a portal
-    // which we should be able to avoid with halfway canny level design
-
-    function renderPortals(gl, scene, portalRenderDepth, stencilValue, portalsSoFar) {
-      // FIRST we render the child portals.
+    function renderPortals(gl, scene, portalToIgnore, portalRenderDepth, stencilValue, portalsSoFar) {
+      if (portalRenderDepth <= 0)
+        return;
+      this.pushCamera();
       let portal,
         i,
-        scenePortals = this._sceneNameToPortalsMap[scene.name];
+        scenePortals = this._sceneNameToPortalsMap[scene.name]
+          .filter(p => p !== portalToIgnore),
         l = scenePortals.length;
+      for (i = 0; i < l; ++i) {
+        const newPortalValue = portalsSoFar | stencilValue;
+        // First, draw the portal to the stencil layer:
+        this._singlePortal[0] = portal = scenePortals[i];
+        this._stencilScene.children = this._singlePortal;
+        gl.stencilFunc(gl.EQUAL, newPortalValue, portalsSoFar);
+        this.renderer.render(this._stencilScene, this.camera);
+        // Draw the portals on the other side
+        this.lookThrough(portal);
+        renderPortals.call(this, gl,
+          portal.destinationPortal.scene,
+          portal.destinationPortal,
+          portalRenderDepth - 1,
+          stencilValue << 1,
+          newPortalValue);
+        // restore original camera matrices for the next portal
+        this.peekCamera();
+        stencilValue <<= 1;
+      }
+      // Clear the stack entry we pushed at the start.
+      this.popCamera();
+    }
+
+    function renderScene(gl, scene, portalToIgnore, portalRenderDepth, stencilValue, portalsSoFar) {
+
+      let scenePortals = this._sceneNameToPortalsMap[scene.name]
+        .filter(p => p !== portalToIgnore);
+
       if (portalRenderDepth > 0) {
+        this.pushCamera();
+        let portal,
+          i,
+          l = scenePortals.length;
         for (i = 0; i < l; ++i) {
-          const newPortalValue = portalsSoFar | stencilValue;
           portal = scenePortals[i];
           // Draw the scene on the other side
           this.lookThrough(portal);
-          renderPortals.call(this, gl,
-            portal.destinationPortal.scene,
-            portalRenderDepth - 1,
-            stencilValue << 1,
-            newPortalValue);
-          // restore original camera matrices for the next portal
-          this.peekCamera();
-          stencilValue <<= 1;
-        }
-        this.popCamera();
-      }
-    }
-
-    function renderScene(gl, scene, portalRenderDepth, stencilValue, portalsSoFar) {
-      if (portalRenderDepth > 0) {
-        // save camera matrices because they will be modified when rending a view through a portal
-        this.pushCamera();
-        gl.colorMask(true, true, true, true);
-        gl.depthMask(true);
-
-        let portal,
-          i,
-          scenePortals = this._sceneNameToPortalsMap[scene.name];
-          l = scenePortals.length;
-        
-        // render the view through a portal inside the portal shape
-        // the portals will be rendered one a time
-        // directly manipulating the children array is faster than using add/remove
-        this._stencilScene.children = this._singlePortal;
-        
-        // First we draw the portals onto the stencil layer
-        const originalStencilValue = stencilValue;
-        for (i = 0; i < l; i++) {
-          const newPortalValue = portalsSoFar | stencilValue;
-          portal = scenePortals[i];
-          
-          // Draw the Portal to the Stencil mask...
-          this._singlePortal[0] = portal;
-          gl.colorMask(false, false, false, false);
-          gl.depthMask(true);
-          gl.stencilFunc(gl.EQUAL, newPortalValue, portalsSoFar);
-          gl.stencilOp(gl.KEEP, gl.REPLACE, gl.KEEP);
-          this.renderer.render(this._stencilScene, this.camera);
-          stencilValue <<= 1;
-        }
-
-        // Then we draw their contents as needed
-        stencilValue = originalStencilValue;
-        for (i = 0; i < l; i++) {
-          const newPortalValue = portalsSoFar | stencilValue;
-          portal = scenePortals[i];
-          
-          // Draw the scene on the other side
-          this.camera.matrixWorld.copy(this.computePortalViewMatrix(portal));
-          this.camera.matrixWorldInverse.getInverse(this.camera.matrixWorld);
-          this.camera.projectionMatrix.copy(
-            this.computePortalProjectionMatrix(portal.destinationPortal));
           renderScene.call(this, gl,
             portal.destinationPortal.scene,
+            portal.destinationPortal,
             portalRenderDepth - 1,
             stencilValue << 1,
-            newPortalValue);
-          
+            portalsSoFar | stencilValue);
           // restore original camera matrices for the next portal
           this.peekCamera();
           stencilValue <<= 1;
         }
         // Reset the stack
         this.popCamera();
-        
-        // after all portals have been drawn, we can disable the stencil test
-        gl.disable(gl.STENCIL_TEST);
-        
-        // clear the depth buffer to remove the portal views' depth from the current scene
-        this.renderer.clear(false, true, false);
-        
-        // all the current scene portals will be drawn this time
-        this._stencilScene.children = scenePortals;
-        
-        // disable color
-        gl.colorMask(false, false, false, false);
-        // draw the portal shapes into the depth buffer
-        // this will make the portals appear as flat shapes
-        this.renderer.render(this._stencilScene, this.camera);
-        
-        // enable color
-        gl.colorMask(true, true, true, true);
       }
-      
-      // finally, render the current scene
+
+      // OK, now we've drawn all the through-portal views, we can draw the current scene.
+      // (Except where there's a portal.)
       gl.stencilFunc(gl.EQUAL, portalsSoFar, portalsSoFar);
-      gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+      this.renderer.clear(false, true, false);
+
+      // We don't want to draw anything behind a portal, so first we draw all the
+      // portals in the current scene into the depth buffer:
+      gl.colorMask(false, false, false, false);
+      gl.depthMask(true);
+      this._stencilScene.children = scenePortals;
+      this.renderer.render(this._stencilScene, this.camera);
+      
+      // finally, render the actual world.
+      gl.colorMask(true, true, true, true);
+      gl.depthMask(true);
       this.renderer.render(scene, this.camera);
     }
     
     return function() {
       var gl = this.renderer.context;
-      
       // make sure camera matrix is up to date
       this.cameraControlsObject.updateMatrix();
       this.cameraControlsObject.updateMatrixWorld(true);
-      
       // full clear (color, depth and stencil)
       this.renderer.clear(true, true, true);
-        
       // enable stencil test
       gl.enable(gl.STENCIL_TEST);
-      gl.stencilMask(0xFFFFFF);
+      gl.stencilMask(0xFF);
 
+      // OK, first we are going to draw all the portals to the stencil layer.
+      // We do not care at this stage about depth sorting
+      // because we can't do it properly at the real draw phase
+      // so we're going to have to fake it with clever level design anyway.
+      // It's a pain but it saves us some computation here I guess?
+      gl.colorMask(false, false, false, false);
+      gl.depthMask(false);
+      gl.depthFunc(gl.ALWAYS);
+      gl.stencilOp(gl.KEEP, gl.REPLACE, gl.REPLACE);
+      renderPortals.call(this, gl,
+        this._currentScene,
+        null,
+        this.portalRenderDepth,
+        0x01,
+        0x00);
+        
+      // Now we are going to draw the scenery so let's just do it normally
+      // (stencil tests aside)
+      gl.depthMask(true);
+      gl.depthFunc(gl.LEQUAL);
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
       renderScene.call(this, gl,
         this._currentScene,
+        null,
         this.portalRenderDepth,
         0x01,
         0x00);
